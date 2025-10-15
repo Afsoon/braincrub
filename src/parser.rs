@@ -1,5 +1,5 @@
 #[derive(Debug, PartialEq)]
-enum BrainfuckOperations {
+pub enum BrainfuckOperations {
     MovePointerRight,
     MovePointerLeft,
     IncrementByOneCurrentCell,
@@ -24,7 +24,7 @@ fn map_char_to_brainfuck_opeartion(token: char) -> Option<BrainfuckOperations> {
     }
 }
 
-fn from_source_to_ast(source_code: &str) -> Vec<BrainfuckOperations> {
+pub fn from_source_to_ast(source_code: &str) -> Vec<BrainfuckOperations> {
     source_code
         .chars()
         .filter_map(map_char_to_brainfuck_opeartion)
