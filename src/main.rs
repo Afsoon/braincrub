@@ -1,4 +1,9 @@
+#![feature(ascii_char)]
+/**
+ * The previous line is mandatory to be able to use the experimental ascii handle api
+ */
 pub mod file;
+pub mod interpreter;
 pub mod parser;
 
 use crate::file::read_source_code_file;
