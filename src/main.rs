@@ -4,13 +4,16 @@
  */
 pub mod file;
 pub mod interpreter;
+pub mod io;
 pub mod parser;
 
 use crate::file::read_source_code_file;
+use crate::interpreter::Interpreter;
+use crate::io::{BasicInput, BasicOutput};
 use crate::parser::from_source_to_ast;
 
 fn main() {
-    let source_code_raw = read_source_code_file("./test_output_a.txt");
+    let source_code_raw = read_source_code_file("./test_input.txt");
 
     if let Err(error) = source_code_raw {
         eprintln!("{}", error);
@@ -18,5 +21,10 @@ fn main() {
     }
 
     let ast = from_source_to_ast(&source_code_raw.unwrap());
-    println!("The AST is {:?}", ast)
+    println!("The AST is {:?}", ast);
+
+    let mut interpreter = Interpreter::new(BasicOutput, BasicInput::default());
+    interpreter.load_ast_program(ast);
+
+    interpreter.run().unwrap();
 }

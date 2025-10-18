@@ -1,16 +1,21 @@
 use core::ascii;
 
-use crate::parser::BrainfuckOperations;
+use crate::{
+    io::{InputValue, OutputValue, ProgramValue},
+    parser::BrainfuckOperations,
+};
 
-pub struct Interpreter<Displayer>
+pub struct Interpreter<Display, Input>
 where
-    Displayer: RenderValues,
+    Display: OutputValue,
+    Input: InputValue,
 {
     pub memory_tape: Vec<u8>,
     pub memory_pointer: usize,
     pub ast_program: Vec<BrainfuckOperations>,
     pub program_counter: Option<BrainfuckOperations>,
-    pub displayer: Displayer,
+    pub display: Display,
+    pub input: Input,
 }
 
 #[derive(Debug, PartialEq)]
@@ -18,37 +23,27 @@ pub enum InterpreterErrors {
     EmptyAST,
 }
 
-pub trait RenderValues {
-    fn print(&mut self, value: char);
-}
-
-pub struct BasicRender;
-
-impl RenderValues for BasicRender {
-    fn print(&mut self, value: char) {
-        print!("{:?}", value)
-    }
-}
-
-impl<Displayer> Interpreter<Displayer>
+impl<Display, Input> Interpreter<Display, Input>
 where
-    Displayer: RenderValues,
+    Display: OutputValue,
+    Input: InputValue,
 {
-    fn new(displayer: Displayer) -> Self {
+    pub fn new(display: Display, input: Input) -> Self {
         Interpreter {
             memory_tape: vec![0; 3000],
             memory_pointer: 0,
             ast_program: vec![],
             program_counter: None,
-            displayer,
+            display,
+            input,
         }
     }
 
-    fn load_ast_program(&mut self, ast_program: Vec<BrainfuckOperations>) {
+    pub fn load_ast_program(&mut self, ast_program: Vec<BrainfuckOperations>) {
         self.ast_program = ast_program;
     }
 
-    fn run(&mut self) -> Result<(), InterpreterErrors> {
+    pub fn run(&mut self) -> Result<(), InterpreterErrors> {
         if self.ast_program.len() == 0 {
             return Err(InterpreterErrors::EmptyAST);
         }
@@ -76,7 +71,9 @@ where
                 BrainfuckOperations::OutputCommand => {
                     let tape_value = self.memory_tape[self.memory_pointer];
                     match ascii::Char::from_u8(tape_value) {
-                        Some(character) => self.displayer.print(character.to_char()),
+                        Some(character) => {
+                            self.display.print(ProgramValue::new(character.to_char()))
+                        }
                         None => {
                             println!(
                                 "Not valid ascii value, the current value is {:?}",
@@ -87,6 +84,17 @@ where
                     self.program_counter = Some(BrainfuckOperations::OutputCommand)
                 }
 
+                BrainfuckOperations::InputCommand => {
+                    let input_value = self.input.get_input();
+                    match input_value {
+                        Ok(value) => {
+                            self.memory_tape[self.memory_pointer] = value.into();
+                        }
+                        Err(_) => {
+                            println!("Unable to read the input")
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -104,9 +112,10 @@ struct DebugMemoryPosition {
 }
 
 #[cfg(test)]
-impl<Displayer> Interpreter<Displayer>
+impl<Display, Input> Interpreter<Display, Input>
 where
-    Displayer: RenderValues,
+    Display: OutputValue,
+    Input: InputValue,
 {
     fn get_debug_info_current_position(&self) -> DebugMemoryPosition {
         DebugMemoryPosition {
@@ -124,18 +133,27 @@ mod interpreter_test {
 
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     struct NoRender;
 
-    impl RenderValues for NoRender {
-        fn print(&mut self, _value: char) {
+    impl OutputValue for NoRender {
+        fn print(&self, _value: ProgramValue) {
             ();
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct NoInput;
+
+    impl InputValue for NoInput {
+        fn get_input(&self) -> Result<ProgramValue, crate::io::InputError> {
+            panic!("No input expect for this test")
         }
     }
 
     #[test]
     fn given_an_ast_empty_when_interpreter_is_run_then_return_error() {
-        let mut interpeter = Interpreter::new(NoRender);
+        let mut interpeter = Interpreter::new(NoRender, NoInput);
 
         interpeter.load_ast_program(vec![]);
 
@@ -146,7 +164,7 @@ mod interpreter_test {
 
     #[test]
     fn give_an_ast_that_output_a_ascii_code_when_interpreter_is_run_then_display_a_ascii_value() {
-        let mut interpeter = Interpreter::new(NoRender);
+        let mut interpeter = Interpreter::new(NoRender, NoInput);
 
         let mut ast: Vec<BrainfuckOperations> = repeat_n(0, 65)
             .map(|_value| BrainfuckOperations::IncrementByOneCurrentCell)
@@ -171,7 +189,7 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_one_to_the_right_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender);
+        let mut interpeter = Interpreter::new(NoRender, NoInput);
 
         let ast = vec![BrainfuckOperations::MovePointerRight];
 
@@ -192,7 +210,7 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_two_to_the_right_and_one_to_left_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender);
+        let mut interpeter = Interpreter::new(NoRender, NoInput);
 
         let ast = vec![
             BrainfuckOperations::MovePointerRight,
@@ -208,6 +226,36 @@ mod interpreter_test {
             position: 1,
             raw_value: 0,
             ascii_value: Some('\0'),
+        };
+
+        assert!(result.is_ok());
+        assert_eq!(interpeter.get_debug_info_current_position(), debug_expect)
+    }
+
+    #[test]
+    fn given_an_ast_with_input_command_when_interpreter_is_run_then_the_current_position_is_modified_with_the_value_provided()
+     {
+        #[derive(Debug, Copy, Clone)]
+        struct AutomaticInput;
+
+        impl InputValue for AutomaticInput {
+            fn get_input(&self) -> Result<ProgramValue, crate::io::InputError> {
+                Ok(ProgramValue('B'))
+            }
+        }
+
+        let mut interpeter = Interpreter::new(NoRender, AutomaticInput);
+
+        let ast = vec![BrainfuckOperations::InputCommand];
+
+        interpeter.load_ast_program(ast);
+
+        let result = interpeter.run();
+
+        let debug_expect = DebugMemoryPosition {
+            position: 0,
+            raw_value: 66,
+            ascii_value: Some('B'),
         };
 
         assert!(result.is_ok());
