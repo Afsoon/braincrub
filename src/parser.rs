@@ -1,4 +1,8 @@
+#[cfg(test)]
+use std::iter::repeat_n;
+
 #[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(Copy, Clone))]
 pub enum BrainfuckOperations {
     MovePointerRight,
     MovePointerLeft,
@@ -27,6 +31,62 @@ pub struct LoopInformation {
 pub enum BrainfuckNodeAST {
     Command(CommandInformation),
     Loop(LoopInformation),
+}
+
+#[cfg(test)]
+pub struct BrainfuckASTBuilder {
+    pub ast: Vec<BrainfuckNodeAST>,
+}
+
+#[cfg(test)]
+impl BrainfuckASTBuilder {
+    pub fn new() -> Self {
+        BrainfuckASTBuilder { ast: vec![] }
+    }
+
+    pub fn add_command_node(
+        &mut self,
+        operation: BrainfuckOperations,
+        next_position: usize,
+    ) -> &mut Self {
+        self.ast.push(BrainfuckNodeAST::Command(CommandInformation {
+            operation,
+            next_position,
+        }));
+        self
+    }
+
+    pub fn add_n_command_nodes(
+        &mut self,
+        operation: BrainfuckOperations,
+        n_times: usize,
+    ) -> &mut Self {
+        repeat_n(0, n_times).for_each(|_value| {
+            self.ast.push(BrainfuckNodeAST::Command(CommandInformation {
+                operation,
+                next_position: self.ast.len() + 1,
+            }))
+        });
+        self
+    }
+
+    pub fn add_loop_node(
+        &mut self,
+        operation: BrainfuckOperations,
+        next_position_as_true: usize,
+        next_position_as_false: usize,
+    ) -> &mut Self {
+        self.ast.push(BrainfuckNodeAST::Loop(LoopInformation {
+            operation,
+            next_position_as_true,
+            next_position_as_false,
+        }));
+        self
+    }
+
+    pub fn build(&self) -> &Vec<BrainfuckNodeAST> {
+        &self.ast
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -103,31 +163,19 @@ mod parser_source_code_test {
     fn given_a_source_code_with_some_invalid_characters_when_parse_it_to_ast_then_return_an_ast_with_invalid_characters_filtered()
      {
         let input = "b[de+a-]";
+        let mut builder = BrainfuckASTBuilder::new();
 
         let result = from_source_to_node_ast(input)
             .expect("The input should return only parsed the valid characters, the rest ignore it");
 
         assert_eq!(
             result,
-            [
-                BrainfuckNodeAST::Loop(LoopInformation {
-                    operation: BrainfuckOperations::LoopStart,
-                    next_position_as_true: 1,
-                    next_position_as_false: 4,
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 2,
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::DecrementByOneCurrentCell,
-                    next_position: 3
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::LoopEnd,
-                    next_position: 0
-                }),
-            ],
+            *builder
+                .add_loop_node(BrainfuckOperations::LoopStart, 1, 4)
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 2)
+                .add_command_node(BrainfuckOperations::DecrementByOneCurrentCell, 3)
+                .add_command_node(BrainfuckOperations::LoopEnd, 0)
+                .build(),
         )
     }
 
@@ -145,47 +193,23 @@ mod parser_source_code_test {
     #[test]
     fn given_a_loop_ast_formatted_then_return_a_correct_ast_with_their_information() {
         let input = "++[+>]++";
+        let mut builder = BrainfuckASTBuilder::new();
 
         let result = from_source_to_node_ast(input)
             .expect("Expected a vec with the   dtoken correctly parsed to their AST");
 
         assert_eq!(
             result,
-            [
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 1
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 2
-                }),
-                BrainfuckNodeAST::Loop(LoopInformation {
-                    operation: BrainfuckOperations::LoopStart,
-                    next_position_as_true: 3,
-                    next_position_as_false: 6
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 4
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::MovePointerRight,
-                    next_position: 5
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::LoopEnd,
-                    next_position: 2
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 7
-                }),
-                BrainfuckNodeAST::Command(CommandInformation {
-                    operation: BrainfuckOperations::IncrementByOneCurrentCell,
-                    next_position: 8
-                }),
-            ]
+            *builder
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 1)
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 2)
+                .add_loop_node(BrainfuckOperations::LoopStart, 3, 6)
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 4)
+                .add_command_node(BrainfuckOperations::MovePointerRight, 5)
+                .add_command_node(BrainfuckOperations::LoopEnd, 2)
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 7)
+                .add_command_node(BrainfuckOperations::IncrementByOneCurrentCell, 8)
+                .build()
         )
     }
 

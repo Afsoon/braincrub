@@ -14,7 +14,7 @@ impl ProgramValue {
 
 impl Display for ProgramValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:?}", self.0)
     }
 }
 
@@ -115,7 +115,7 @@ pub struct BasicOutput;
 
 impl OutputValue for BasicOutput {
     fn print(&self, value: ProgramValue) {
-        print!("{:?}", value)
+        print!("{:?}", value.0)
     }
 }
 
