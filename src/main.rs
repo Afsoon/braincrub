@@ -10,7 +10,7 @@ pub mod parser;
 use crate::file::read_source_code_file;
 use crate::interpreter::Interpreter;
 use crate::io::{BasicInput, BasicOutput};
-use crate::parser::from_source_to_ast;
+use crate::parser::from_source_to_node_ast;
 
 fn main() {
     let source_code_raw = read_source_code_file("./test_input.txt");
@@ -20,11 +20,6 @@ fn main() {
         return;
     }
 
-    let ast = from_source_to_ast(&source_code_raw.unwrap());
+    let ast = from_source_to_node_ast(&source_code_raw.unwrap()).unwrap();
     println!("The AST is {:?}", ast);
-
-    let mut interpreter = Interpreter::new(BasicOutput, BasicInput::default());
-    interpreter.load_ast_program(ast);
-
-    interpreter.run().unwrap();
 }
