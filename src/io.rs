@@ -119,6 +119,79 @@ impl OutputValue for BasicOutput {
     }
 }
 
+pub struct BrainfuckMemory {
+    memory: Vec<u8>,
+    position: usize,
+}
+
+pub enum MemoryErrors {
+    CellOverflow,
+    CellUnderflow,
+    OutOfRangePosition,
+}
+
+pub trait MemoryTape<CellType> {
+    fn new(memory_tape_size: usize) -> Self;
+    fn move_pointer_position(&mut self, step: isize) -> Result<(), MemoryErrors>;
+    fn get_current_cell_value(&self) -> CellType;
+    fn get_position(&self) -> usize;
+    fn update_memory_cell_value<F>(&mut self, fn_update: F) -> Result<(), MemoryErrors>
+    where
+        F: FnOnce(CellType) -> Result<CellType, MemoryErrors>;
+}
+
+impl MemoryTape<u8> for BrainfuckMemory {
+    fn new(memory_tape_size: usize) -> Self {
+        BrainfuckMemory {
+            memory: vec![0; memory_tape_size],
+            position: 0,
+        }
+    }
+
+    fn get_current_cell_value(&self) -> u8 {
+        self.memory[self.position]
+    }
+
+    fn get_position(&self) -> usize {
+        self.position
+    }
+
+    fn move_pointer_position(&mut self, step: isize) -> Result<(), MemoryErrors> {
+        let new_memory_position = self.position.checked_add_signed(step);
+
+        match new_memory_position {
+            Some(new_position) => {
+                self.position = new_position;
+                Ok(())
+            }
+            None => Err(MemoryErrors::OutOfRangePosition),
+        }
+    }
+    fn update_memory_cell_value<F>(&mut self, fn_update: F) -> Result<(), MemoryErrors>
+    where
+        F: FnOnce(u8) -> Result<u8, MemoryErrors>,
+    {
+        let updated_memory_cell_value = fn_update(self.memory[self.position]);
+
+        match updated_memory_cell_value {
+            Ok(cell_value) => {
+                self.memory[self.position] = cell_value;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl Default for BrainfuckMemory {
+    fn default() -> Self {
+        BrainfuckMemory {
+            memory: vec![0; 3000],
+            position: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod conversion_test {
     use crate::io::{AsciiParseError, ProgramValue};

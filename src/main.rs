@@ -9,7 +9,7 @@ pub mod parser;
 
 use crate::file::read_source_code_file;
 use crate::interpreter::Interpreter;
-use crate::io::{BasicInput, BasicOutput};
+use crate::io::{BasicInput, BasicOutput, BrainfuckMemory};
 use crate::parser::from_source_to_node_ast;
 
 fn main() {
@@ -22,7 +22,11 @@ fn main() {
 
     let ast = from_source_to_node_ast(&source_code_raw.unwrap()).unwrap();
 
-    let mut interpreter = Interpreter::new(BasicOutput, BasicInput::default());
+    let mut interpreter = Interpreter::new(
+        BasicOutput,
+        BasicInput::default(),
+        BrainfuckMemory::default(),
+    );
     interpreter.load_ast_program(&ast);
 
     interpreter.run().unwrap();

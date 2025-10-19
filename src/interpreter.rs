@@ -1,17 +1,17 @@
 use core::ascii;
 
 use crate::{
-    io::{InputValue, OutputValue, ProgramValue},
+    io::{BrainfuckMemory, InputValue, MemoryErrors, MemoryTape, OutputValue, ProgramValue},
     parser::{BrainfuckNodeAST, BrainfuckOperations},
 };
 
-pub struct Interpreter<'a, Display, Input>
+pub struct Interpreter<'a, Display, Input, Memory>
 where
+    Memory: MemoryTape<u8>,
     Display: OutputValue,
     Input: InputValue,
 {
-    pub memory_tape: Vec<u8>,
-    pub memory_pointer: usize,
+    pub memory: Memory,
     pub ast_program: Option<&'a Vec<BrainfuckNodeAST>>,
     pub program_counter: Option<BrainfuckOperations>,
     pub display: Display,
@@ -22,17 +22,18 @@ where
 pub enum InterpreterErrors {
     EmptyAST,
     UnknownASTNode,
+    OutOfRangeMemoryAccess,
 }
 
-impl<'a, Display, Input> Interpreter<'a, Display, Input>
+impl<'a, Display, Input, Memory> Interpreter<'a, Display, Input, Memory>
 where
+    Memory: MemoryTape<u8>,
     Display: OutputValue,
     Input: InputValue,
 {
-    pub fn new(display: Display, input: Input) -> Self {
+    pub fn new(display: Display, input: Input, memory: Memory) -> Self {
         Interpreter {
-            memory_tape: vec![0; 3000],
-            memory_pointer: 0,
+            memory,
             ast_program: None,
             program_counter: None,
             display,
@@ -63,43 +64,61 @@ where
                     if command.operation == BrainfuckOperations::IncrementByOneCurrentCell =>
                 {
                     position = command.next_position;
-                    self.memory_tape[self.memory_pointer] += 1;
+                    let _ = self.memory.update_memory_cell_value(|value| {
+                        value
+                            .checked_add(1)
+                            .map_or_else(|| Err(MemoryErrors::CellOverflow), Ok)
+                    });
                     self.program_counter = Some(BrainfuckOperations::IncrementByOneCurrentCell)
                 }
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::DecrementByOneCurrentCell =>
                 {
                     position = command.next_position;
-                    self.memory_tape[self.memory_pointer] -= 1;
+                    let _ = self.memory.update_memory_cell_value(|value| {
+                        value
+                            .checked_sub(1)
+                            .map_or_else(|| Err(MemoryErrors::CellUnderflow), Ok)
+                    });
                     self.program_counter = Some(BrainfuckOperations::DecrementByOneCurrentCell)
                 }
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::MovePointerRight =>
                 {
                     position = command.next_position;
-                    self.memory_pointer += 1;
+                    let result_move = self.memory.move_pointer_position(1);
+
+                    if result_move.is_err() {
+                        return Err(InterpreterErrors::OutOfRangeMemoryAccess);
+                    }
+
                     self.program_counter = Some(BrainfuckOperations::MovePointerRight)
                 }
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::MovePointerLeft =>
                 {
                     position = command.next_position;
-                    self.memory_pointer -= 1;
+
+                    let result_move = self.memory.move_pointer_position(-1);
+
+                    if result_move.is_err() {
+                        return Err(InterpreterErrors::OutOfRangeMemoryAccess);
+                    }
+
                     self.program_counter = Some(BrainfuckOperations::MovePointerLeft)
                 }
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::OutputCommand =>
                 {
                     position = command.next_position;
-                    let tape_value = self.memory_tape[self.memory_pointer];
-                    match ascii::Char::from_u8(tape_value) {
+                    match ascii::Char::from_u8(self.memory.get_current_cell_value()) {
                         Some(character) => {
                             self.display.print(ProgramValue::new(character.to_char()))
                         }
                         None => {
                             println!(
                                 "Not valid ascii value, the current value is {:?}",
-                                tape_value
+                                self.memory.get_current_cell_value()
                             )
                         }
                     }
@@ -110,9 +129,12 @@ where
                 {
                     position = command.next_position;
                     let input_value = self.input.get_input();
+
                     match input_value {
                         Ok(value) => {
-                            self.memory_tape[self.memory_pointer] = value.into();
+                            let _ = self
+                                .memory
+                                .update_memory_cell_value(|_value| Ok(value.into()));
                         }
                         Err(_) => {
                             println!("Unable to read the input")
@@ -127,8 +149,7 @@ where
                 BrainfuckNodeAST::Loop(loop_node)
                     if loop_node.operation == BrainfuckOperations::LoopStart =>
                 {
-                    let tape_value = self.memory_tape[self.memory_pointer];
-                    if tape_value > 0 {
+                    if self.memory.get_current_cell_value() > 0 {
                         position = loop_node.next_position_as_true;
                         continue;
                     }
@@ -151,16 +172,17 @@ struct DebugMemoryPosition {
 }
 
 #[cfg(test)]
-impl<'a, Display, Input> Interpreter<'a, Display, Input>
+impl<'a, Display, Input, Memory> Interpreter<'a, Display, Input, Memory>
 where
     Display: OutputValue,
     Input: InputValue,
+    Memory: MemoryTape<u8>,
 {
     fn get_debug_info_current_position(&self) -> DebugMemoryPosition {
         DebugMemoryPosition {
-            position: self.memory_pointer,
-            raw_value: self.memory_tape[self.memory_pointer],
-            ascii_value: ascii::Char::from_u8(self.memory_tape[self.memory_pointer])
+            position: self.memory.get_position(),
+            raw_value: self.memory.get_current_cell_value(),
+            ascii_value: ascii::Char::from_u8(self.memory.get_current_cell_value())
                 .map(|charecter| charecter.to_char()),
         }
     }
@@ -194,7 +216,7 @@ mod interpreter_test {
 
     #[test]
     fn given_an_ast_empty_when_interpreter_is_run_then_return_error() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput);
+        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
         let builder = BrainfuckASTBuilder::new();
 
         interpeter.load_ast_program(&builder.ast);
@@ -206,7 +228,7 @@ mod interpreter_test {
 
     #[test]
     fn give_an_ast_that_output_a_ascii_code_when_interpreter_is_run_then_display_a_ascii_value() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput);
+        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
         let mut builder = BrainfuckASTBuilder::new();
         let mut position: usize = 0;
 
@@ -234,7 +256,7 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_one_to_the_right_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender, NoInput);
+        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
         let mut builder = BrainfuckASTBuilder::new();
 
         let ast = builder
@@ -258,7 +280,7 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_two_to_the_right_and_one_to_left_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender, NoInput);
+        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
         let mut builder = BrainfuckASTBuilder::new();
 
         let ast = builder
@@ -293,7 +315,7 @@ mod interpreter_test {
             }
         }
 
-        let mut interpeter = Interpreter::new(NoRender, AutomaticInput);
+        let mut interpeter = Interpreter::new(NoRender, AutomaticInput, BrainfuckMemory::default());
 
         let mut builder = BrainfuckASTBuilder::new();
 
@@ -317,7 +339,7 @@ mod interpreter_test {
 
     #[test]
     fn given_an_ast_with_loops_to_render_a_uppercase_when_is_run_then_a_uppercase_is_show() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput);
+        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
         let mut builder = BrainfuckASTBuilder::new();
         builder
             .add_n_command_nodes(BrainfuckOperations::IncrementByOneCurrentCell, 10)
