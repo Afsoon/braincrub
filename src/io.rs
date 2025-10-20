@@ -124,6 +124,7 @@ pub struct BrainfuckMemory {
     position: usize,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum MemoryErrors {
     CellOverflow,
     CellUnderflow,
@@ -160,6 +161,9 @@ impl MemoryTape<u8> for BrainfuckMemory {
         let new_memory_position = self.position.checked_add_signed(step);
 
         match new_memory_position {
+            Some(new_position) if new_position > self.memory.len() => {
+                Err(MemoryErrors::OutOfRangePosition)
+            }
             Some(new_position) => {
                 self.position = new_position;
                 Ok(())
@@ -194,7 +198,7 @@ impl Default for BrainfuckMemory {
 
 #[cfg(test)]
 mod conversion_test {
-    use crate::io::{AsciiParseError, ProgramValue};
+    use crate::io::*;
 
     #[test]
     fn when_string_represent_a_valid_ascii_char_then_return_the_value_parser() {
@@ -229,5 +233,41 @@ mod conversion_test {
         let ascii_char = ProgramValue::try_from("128").unwrap_err();
 
         assert_eq!(ascii_char, AsciiParseError::NotValidNumericRangeValue)
+    }
+
+    #[test]
+    fn given_a_memory_is_at_position_zero_when_moving_minus_one_position_then_return_an_error() {
+        let mut memory = BrainfuckMemory::default();
+
+        let error = memory
+            .move_pointer_position(-1)
+            .expect_err("Expect to get an out of range index");
+
+        assert_eq!(error, MemoryErrors::OutOfRangePosition)
+    }
+
+    #[test]
+    fn given_a_memory_is_at_position_zero_and_size_2_when_moving_increasing_the_pointer_by_three_steeps_then_return_an_error()
+     {
+        let mut memory = BrainfuckMemory::new(2);
+
+        let error = memory
+            .move_pointer_position(3)
+            .expect_err("Expect to get an out of range index");
+
+        assert_eq!(error, MemoryErrors::OutOfRangePosition)
+    }
+
+    #[test]
+    fn when_update_cell_value_failed_then_memory_cell_is_not_updated() {
+        let mut memory = BrainfuckMemory::default();
+
+        memory.update_memory_cell_value(|_value| Ok(23)).unwrap();
+
+        memory
+            .update_memory_cell_value(|_value| Err(MemoryErrors::CellOverflow))
+            .unwrap_err();
+
+        assert_eq!(memory.get_current_cell_value(), 23)
     }
 }
