@@ -1,8 +1,7 @@
 #[cfg(test)]
 use std::iter::repeat_n;
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(Copy, Clone))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BrainfuckOperations {
     MovePointerRight,
     MovePointerLeft,
@@ -14,23 +13,24 @@ pub enum BrainfuckOperations {
     LoopEnd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct CommandInformation {
     pub operation: BrainfuckOperations,
     pub next_position: usize, // Change to Option
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct LoopInformation {
     pub operation: BrainfuckOperations,
     pub next_position_as_true: usize,  // Change to Option
     pub next_position_as_false: usize, // Change to Option
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BrainfuckNodeAST {
     Command(CommandInformation),
     Loop(LoopInformation),
+    NoOp,
 }
 
 #[cfg(test)]

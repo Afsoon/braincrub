@@ -1,9 +1,62 @@
 use core::ascii;
 
 use crate::{
-    io::{BrainfuckMemory, InputValue, MemoryErrors, MemoryTape, OutputValue, ProgramValue},
+    io::{InputValue, MemoryErrors, MemoryTape, OutputValue, ProgramValue},
     parser::{BrainfuckNodeAST, BrainfuckOperations},
 };
+
+struct VecAST(Vec<BrainfuckNodeAST>);
+
+#[derive(Clone, Copy)]
+pub struct ProgramAST<'a> {
+    current: usize,
+    ast: &'a Vec<BrainfuckNodeAST>,
+}
+
+impl<'a> ProgramAST<'a> {
+    pub fn new(ast: &'a Vec<BrainfuckNodeAST>) -> Self {
+        Self { current: 0, ast }
+    }
+
+    pub fn jump_to_node(&mut self, node_id: usize) {
+        if node_id < self.ast.len() {
+            self.current = node_id;
+        } else {
+            self.current = self.ast.len();
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.ast.is_empty()
+    }
+}
+
+impl<'a> Iterator for ProgramAST<'a> {
+    type Item = &'a BrainfuckNodeAST;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.ast.len() {
+            let index = self.current;
+            self.current += 1;
+            // vec[] doesn't return you a reference, it returns to you a a borrowed value
+            self.ast.get(index)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a VecAST {
+    type Item = &'a BrainfuckNodeAST;
+    type IntoIter = ProgramAST<'a>;
+
+    fn into_iter(self) -> ProgramAST<'a> {
+        ProgramAST {
+            current: 0,
+            ast: &self.0,
+        }
+    }
+}
 
 pub struct Interpreter<'a, Display, Input, Memory>
 where
@@ -12,7 +65,7 @@ where
     Input: InputValue,
 {
     pub memory: Memory,
-    pub ast_program: Option<&'a Vec<BrainfuckNodeAST>>,
+    pub ast_program: Option<ProgramAST<'a>>,
     pub program_counter: Option<BrainfuckOperations>,
     pub display: Display,
     pub input: Input,
@@ -42,28 +95,25 @@ where
     }
 
     pub fn load_ast_program(&mut self, ast_program: &'a Vec<BrainfuckNodeAST>) {
-        self.ast_program = Some(ast_program);
+        self.ast_program = Some(ProgramAST::new(ast_program));
     }
 
     pub fn run(&mut self) -> Result<(), InterpreterErrors> {
-        let ast = match self.ast_program {
-            Some(ast) if ast.len() == 0 => {
+        let mut ast = match &self.ast_program {
+            Some(ast) if ast.is_empty() => {
                 return Err(InterpreterErrors::EmptyAST);
             }
-            Some(ast) => ast,
+            Some(ast) => ast.into_iter(),
             None => {
                 return Err(InterpreterErrors::EmptyAST);
             }
         };
 
-        let mut position: usize = 0;
-
-        while let Some(node) = ast.get(position) {
+        while let Some(node) = ast.next() {
             match node {
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::IncrementByOneCurrentCell =>
                 {
-                    position = command.next_position;
                     let _ = self.memory.update_memory_cell_value(|value| {
                         value
                             .checked_add(1)
@@ -74,7 +124,6 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::DecrementByOneCurrentCell =>
                 {
-                    position = command.next_position;
                     let _ = self.memory.update_memory_cell_value(|value| {
                         value
                             .checked_sub(1)
@@ -85,7 +134,6 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::MovePointerRight =>
                 {
-                    position = command.next_position;
                     let result_move = self.memory.move_pointer_position(1);
 
                     if result_move.is_err() {
@@ -97,8 +145,6 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::MovePointerLeft =>
                 {
-                    position = command.next_position;
-
                     let result_move = self.memory.move_pointer_position(-1);
 
                     if result_move.is_err() {
@@ -110,7 +156,6 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::OutputCommand =>
                 {
-                    position = command.next_position;
                     match ascii::Char::from_u8(self.memory.get_current_cell_value()) {
                         Some(character) => {
                             self.display.print(ProgramValue::new(character.to_char()))
@@ -127,7 +172,6 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::InputCommand =>
                 {
-                    position = command.next_position;
                     let input_value = self.input.get_input();
 
                     match input_value {
@@ -144,16 +188,16 @@ where
                 BrainfuckNodeAST::Command(command)
                     if command.operation == BrainfuckOperations::LoopEnd =>
                 {
-                    position = command.next_position;
+                    ast.jump_to_node(command.next_position);
                 }
                 BrainfuckNodeAST::Loop(loop_node)
                     if loop_node.operation == BrainfuckOperations::LoopStart =>
                 {
                     if self.memory.get_current_cell_value() > 0 {
-                        position = loop_node.next_position_as_true;
                         continue;
                     }
-                    position = loop_node.next_position_as_false;
+
+                    ast.jump_to_node(loop_node.next_position_as_false);
                 }
                 _ => return Err(InterpreterErrors::UnknownASTNode),
             }
@@ -192,6 +236,7 @@ where
 mod interpreter_test {
     use std::iter::repeat_n;
 
+    use crate::io::BrainfuckMemory;
     use crate::parser::BrainfuckASTBuilder;
 
     use super::*;
