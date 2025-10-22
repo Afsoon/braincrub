@@ -1,7 +1,7 @@
 use core::ascii;
 
 use inquire::{CustomType, ui::RenderConfig};
-use std::{fmt::Display, num::IntErrorKind};
+use std::{convert::Infallible, fmt::Display, num::IntErrorKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramValue(pub char);
@@ -18,12 +18,8 @@ impl Display for ProgramValue {
     }
 }
 
-pub enum InputError {
-    Unknown,
-}
-
 pub trait InputValue {
-    fn get_input(&self) -> Result<ProgramValue, InputError>;
+    fn get_input(&self) -> Result<ProgramValue, Infallible>;
 }
 
 pub struct BasicInput<'a> {
@@ -98,11 +94,8 @@ impl<'a> Default for BasicInput<'a> {
 }
 
 impl<'a> InputValue for BasicInput<'a> {
-    fn get_input(&self) -> Result<ProgramValue, InputError> {
-        self.prompt
-            .to_owned()
-            .prompt()
-            .or_else(|_value| Err(InputError::Unknown))
+    fn get_input(&self) -> Result<ProgramValue, Infallible> {
+        Ok(self.prompt.to_owned().prompt().unwrap())
     }
 }
 

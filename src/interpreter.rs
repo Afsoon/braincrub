@@ -1,59 +1,26 @@
 use core::ascii;
 
+use thiserror::Error;
+
 use crate::{
     io::{InputValue, MemoryErrors, MemoryTape, OutputValue, ProgramValue},
     parser::{BrainfuckNodeAST, BrainfuckOperations},
 };
 
-struct VecAST(Vec<BrainfuckNodeAST>);
-
-#[derive(Clone, Copy)]
-pub struct ProgramAST<'a> {
-    current: usize,
-    ast: &'a Vec<BrainfuckNodeAST>,
+pub struct InterpreterConfig {
+    number_of_reads: usize,
 }
 
-impl<'a> ProgramAST<'a> {
-    pub fn new(ast: &'a Vec<BrainfuckNodeAST>) -> Self {
-        Self { current: 0, ast }
-    }
-
-    pub fn jump_to_node(&mut self, node_id: usize) {
-        if node_id < self.ast.len() {
-            self.current = node_id;
-        } else {
-            self.current = self.ast.len();
-        }
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.ast.is_empty()
+impl InterpreterConfig {
+    pub fn new(number_of_reads: usize) -> Self {
+        InterpreterConfig { number_of_reads }
     }
 }
 
-impl<'a> Iterator for ProgramAST<'a> {
-    type Item = &'a BrainfuckNodeAST;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current < self.ast.len() {
-            let index = self.current;
-            self.current += 1;
-            // vec[] doesn't return you a reference, it returns to you a a borrowed value
-            self.ast.get(index)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a VecAST {
-    type Item = &'a BrainfuckNodeAST;
-    type IntoIter = ProgramAST<'a>;
-
-    fn into_iter(self) -> ProgramAST<'a> {
-        ProgramAST {
-            current: 0,
-            ast: &self.0,
+impl Default for InterpreterConfig {
+    fn default() -> Self {
+        InterpreterConfig {
+            number_of_reads: 60000,
         }
     }
 }
@@ -69,13 +36,25 @@ where
     pub program_counter: Option<BrainfuckOperations>,
     pub display: Display,
     pub input: Input,
+    pub config: InterpreterConfig,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum InterpreterErrors {
+    #[error("You are trying to execute a empty source code file")]
     EmptyAST,
-    UnknownASTNode,
+    #[error("The interpreter can't understand the AST node ${node:?}")]
+    UnknownASTNode { node: BrainfuckNodeAST },
+    #[error("The program is trying to access to position out of range in the memory")]
     OutOfRangeMemoryAccess,
+    #[error(
+        "Unexpected value in the memory cell. The value that panicked the program is {value:?}"
+    )]
+    InvalidValidU8Value { value: u8 },
+    #[error(
+        "Not enought reads to complete the program. Check if the program have infinite loops or increased the amount of reads"
+    )]
+    UnableToCompleteTheProgram,
 }
 
 impl<'a, Display, Input, Memory> Interpreter<'a, Display, Input, Memory>
@@ -84,18 +63,23 @@ where
     Display: OutputValue,
     Input: InputValue,
 {
-    pub fn new(display: Display, input: Input, memory: Memory) -> Self {
+    pub fn new(display: Display, input: Input, memory: Memory, config: InterpreterConfig) -> Self {
         Interpreter {
             memory,
             ast_program: None,
             program_counter: None,
             display,
             input,
+            config,
         }
     }
 
     pub fn load_ast_program(&mut self, ast_program: &'a Vec<BrainfuckNodeAST>) {
-        self.ast_program = Some(ProgramAST::new(ast_program));
+        self.ast_program = Some(ProgramAST::new(ast_program, self.config.number_of_reads));
+    }
+
+    pub fn set_interpreter_config(&mut self, new_config: InterpreterConfig) {
+        self.config = new_config;
     }
 
     pub fn run(&mut self) -> Result<(), InterpreterErrors> {
@@ -161,10 +145,9 @@ where
                             self.display.print(ProgramValue::new(character.to_char()))
                         }
                         None => {
-                            println!(
-                                "Not valid ascii value, the current value is {:?}",
-                                self.memory.get_current_cell_value()
-                            )
+                            return Err(InterpreterErrors::InvalidValidU8Value {
+                                value: self.memory.get_current_cell_value(),
+                            });
                         }
                     }
                     self.program_counter = Some(BrainfuckOperations::OutputCommand)
@@ -181,7 +164,7 @@ where
                                 .update_memory_cell_value(|_value| Ok(value.into()));
                         }
                         Err(_) => {
-                            println!("Unable to read the input")
+                            panic!("The input implementation should never fail")
                         }
                     }
                 }
@@ -199,8 +182,12 @@ where
 
                     ast.jump_to_node(loop_node.next_position_as_false);
                 }
-                _ => return Err(InterpreterErrors::UnknownASTNode),
+                _ => return Err(InterpreterErrors::UnknownASTNode { node: *node }),
             }
+        }
+
+        if ast.program_run_out_of_reads() {
+            return Err(InterpreterErrors::UnableToCompleteTheProgram);
         }
 
         Ok(())
@@ -232,8 +219,84 @@ where
     }
 }
 
+struct VecAST {
+    vec: Vec<BrainfuckNodeAST>,
+    number_of_reads: usize,
+}
+
+#[derive(Clone, Copy)]
+pub struct ProgramAST<'a> {
+    current: usize,
+    number_of_reads: usize,
+    ast: &'a Vec<BrainfuckNodeAST>,
+}
+
+impl<'a> ProgramAST<'a> {
+    pub fn new(ast: &'a Vec<BrainfuckNodeAST>, number_of_reads: usize) -> Self {
+        Self {
+            current: 0,
+            ast,
+            number_of_reads,
+        }
+    }
+
+    pub fn jump_to_node(&mut self, node_id: usize) {
+        if node_id < self.ast.len() {
+            self.current = node_id;
+        } else {
+            self.current = self.ast.len();
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.ast.is_empty()
+    }
+
+    pub fn is_program_completed(self) -> bool {
+        self.current > self.ast.len()
+    }
+
+    pub fn program_run_out_of_reads(self) -> bool {
+        self.number_of_reads == 0 && self.current < self.ast.len()
+    }
+}
+
+impl<'a> Iterator for ProgramAST<'a> {
+    type Item = &'a BrainfuckNodeAST;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.number_of_reads == 0 {
+            return None;
+        }
+
+        if self.current < self.ast.len() {
+            let index = self.current;
+            self.current += 1;
+            self.number_of_reads -= 1;
+            // vec[] doesn't return you a reference, it returns to you a a borrowed value
+            self.ast.get(index)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a VecAST {
+    type Item = &'a BrainfuckNodeAST;
+    type IntoIter = ProgramAST<'a>;
+
+    fn into_iter(self) -> ProgramAST<'a> {
+        ProgramAST {
+            current: 0,
+            ast: &self.vec,
+            number_of_reads: self.number_of_reads,
+        }
+    }
+}
+
 #[cfg(test)]
 mod interpreter_test {
+    use std::convert::Infallible;
     use std::iter::repeat_n;
 
     use crate::io::BrainfuckMemory;
@@ -254,14 +317,19 @@ mod interpreter_test {
     struct NoInput;
 
     impl InputValue for NoInput {
-        fn get_input(&self) -> Result<ProgramValue, crate::io::InputError> {
+        fn get_input(&self) -> Result<ProgramValue, Infallible> {
             panic!("No input expect for this test")
         }
     }
 
     #[test]
     fn given_an_ast_empty_when_interpreter_is_run_then_return_error() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            NoInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
         let builder = BrainfuckASTBuilder::new();
 
         interpeter.load_ast_program(&builder.ast);
@@ -273,7 +341,12 @@ mod interpreter_test {
 
     #[test]
     fn give_an_ast_that_output_a_ascii_code_when_interpreter_is_run_then_display_a_ascii_value() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            NoInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
         let mut builder = BrainfuckASTBuilder::new();
         let mut position: usize = 0;
 
@@ -301,7 +374,12 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_one_to_the_right_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            NoInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
         let mut builder = BrainfuckASTBuilder::new();
 
         let ast = builder
@@ -325,7 +403,12 @@ mod interpreter_test {
     #[test]
     fn given_an_ast_that_move_two_to_the_right_and_one_to_left_when_interpreter_is_run_then_the_current_position_is_1()
      {
-        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            NoInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
         let mut builder = BrainfuckASTBuilder::new();
 
         let ast = builder
@@ -355,12 +438,17 @@ mod interpreter_test {
         struct AutomaticInput;
 
         impl InputValue for AutomaticInput {
-            fn get_input(&self) -> Result<ProgramValue, crate::io::InputError> {
+            fn get_input(&self) -> Result<ProgramValue, Infallible> {
                 Ok(ProgramValue('B'))
             }
         }
 
-        let mut interpeter = Interpreter::new(NoRender, AutomaticInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            AutomaticInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
 
         let mut builder = BrainfuckASTBuilder::new();
 
@@ -384,7 +472,12 @@ mod interpreter_test {
 
     #[test]
     fn given_an_ast_with_loops_to_render_a_uppercase_when_is_run_then_a_uppercase_is_show() {
-        let mut interpeter = Interpreter::new(NoRender, NoInput, BrainfuckMemory::default());
+        let mut interpeter = Interpreter::new(
+            NoRender,
+            NoInput,
+            BrainfuckMemory::default(),
+            InterpreterConfig::default(),
+        );
         let mut builder = BrainfuckASTBuilder::new();
         builder
             .add_n_command_nodes(BrainfuckOperations::IncrementByOneCurrentCell, 10)
@@ -411,4 +504,16 @@ mod interpreter_test {
         assert!(result.is_ok());
         assert_eq!(interpeter.get_debug_info_current_position(), debug_expect)
     }
+
+    #[test]
+    fn iterator_jump_node() {}
+
+    #[test]
+    fn is_complete() {}
+
+    #[test]
+    fn is_pending_running_and_have_reads() {}
+
+    #[test]
+    fn not_reads() {}
 }

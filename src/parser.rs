@@ -1,6 +1,8 @@
 #[cfg(test)]
 use std::iter::repeat_n;
 
+use thiserror::Error;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BrainfuckOperations {
     MovePointerRight,
@@ -89,9 +91,11 @@ impl BrainfuckASTBuilder {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum ParserErrors {
+    #[error("The source code have more open loop brackets than closing loop brackets.")]
     MissingTerminantedLoop,
+    #[error("The source code have more closing loop brackets than open loop brackets.")]
     MissingOpenLoop,
 }
 
