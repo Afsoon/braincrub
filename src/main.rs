@@ -48,6 +48,7 @@ fn braincrub_cli() -> Command {
                 .about("Check if the file provided have correct brainfuck syntax. It will fail if the loops aren't balanced. Non valid characters are ignored")
                 .arg(
                     Arg::new("file")
+                        .short('f')
                         .action(ArgAction::Set)
                         .value_name("PATH")
                         .help("File path to the file to be processed")
@@ -62,6 +63,7 @@ fn braincrub_cli() -> Command {
                 .about("Check and run a brainfuck source code file. Non valid characters are ignored")
                 .arg(
                     Arg::new("memory-size")
+                        .short('m')
                         .action(ArgAction::Set)
                         .required(false)
                         .num_args(1)

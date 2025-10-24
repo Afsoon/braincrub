@@ -253,7 +253,7 @@ impl<'a> ProgramAST<'a> {
     }
 
     pub fn is_program_completed(self) -> bool {
-        self.current > self.ast.len()
+        self.current >= self.ast.len()
     }
 
     pub fn program_run_out_of_reads(self) -> bool {
@@ -273,7 +273,7 @@ impl<'a> Iterator for ProgramAST<'a> {
             let index = self.current;
             self.current += 1;
             self.number_of_reads -= 1;
-            // vec[] doesn't return you a reference, it returns to you a a borrowed value
+
             self.ast.get(index)
         } else {
             None
@@ -300,7 +300,7 @@ mod interpreter_test {
     use std::iter::repeat_n;
 
     use crate::io::BrainfuckMemory;
-    use crate::parser::BrainfuckASTBuilder;
+    use crate::parser::{BrainfuckASTBuilder, CommandInformation};
 
     use super::*;
 
@@ -506,14 +506,67 @@ mod interpreter_test {
     }
 
     #[test]
-    fn iterator_jump_node() {}
+    fn when_moving_to_a_distinct_node_then_return_the_value_of_the_target_node() {
+        let mut builder = BrainfuckASTBuilder::new();
+        let ast = ProgramAST::new(
+            builder
+                .add_command_node(BrainfuckOperations::MovePointerRight, 1)
+                .add_n_command_nodes(BrainfuckOperations::IncrementByOneCurrentCell, 10)
+                .build(),
+            60000,
+        );
+        let mut iter = ast.into_iter();
+        let first = iter.next();
+        iter.next();
+
+        iter.jump_to_node(0);
+
+        let again_first = iter.next();
+
+        assert_eq!(first, again_first);
+        assert_ne!(
+            again_first,
+            Some(&BrainfuckNodeAST::Command(CommandInformation {
+                operation: BrainfuckOperations::IncrementByOneCurrentCell,
+                next_position: 2
+            }))
+        )
+    }
 
     #[test]
-    fn is_complete() {}
+    fn when_consuming_completly_the_ast_then_return_none() {
+        let mut builder = BrainfuckASTBuilder::new();
+        let ast = ProgramAST::new(
+            builder
+                .add_command_node(BrainfuckOperations::MovePointerRight, 1)
+                .build(),
+            60000,
+        );
+        let mut iter = ast.into_iter();
+        iter.next();
+
+        let end = iter.next();
+
+        assert!(iter.is_program_completed());
+        assert_eq!(end, None);
+    }
 
     #[test]
-    fn is_pending_running_and_have_reads() {}
+    fn give_less_read_steps_than_ast_nodes_when_check_if_program_still_running_then_return_ok() {
+        let mut builder = BrainfuckASTBuilder::new();
+        let ast = ProgramAST::new(
+            builder
+                .add_command_node(BrainfuckOperations::MovePointerRight, 1)
+                .add_n_command_nodes(BrainfuckOperations::IncrementByOneCurrentCell, 10)
+                .build(),
+            1,
+        );
+        let mut iter = ast.into_iter();
+        iter.next();
 
-    #[test]
-    fn not_reads() {}
+        let end = iter.next();
+
+        assert!(iter.program_run_out_of_reads());
+        assert_eq!(end, None);
+    }
 }

@@ -152,15 +152,4 @@ mod read_file {
             }
         )
     }
-
-    #[test]
-    #[ignore = "I can't commit a file wihtout read permission, it should be update to create a tmp file without permission and read it"]
-    fn given_user_with_lack_of_permission_when_user_try_to_read_a_file_without_permission_then_return_not_enough_permission_error()
-     {
-        let path = file_test_case!("not_permission.txt");
-
-        let file_error = read_source_code_file(&path).unwrap_err();
-
-        assert_eq!(file_error, FileError::NotEnoughPermission)
-    }
 }

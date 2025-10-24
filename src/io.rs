@@ -168,6 +168,9 @@ impl MemoryTape<u8> for BrainfuckMemory {
     where
         F: FnOnce(u8) -> Result<u8, MemoryErrors>,
     {
+        if self.memory.get(self.position).is_none() {
+            return Err(MemoryErrors::OutOfRangePosition);
+        }
         let updated_memory_cell_value = fn_update(self.memory[self.position]);
 
         match updated_memory_cell_value {
