@@ -1,7 +1,10 @@
 [package]
-name = "brainfuck_interpreter"
+name = "braincrab"
+description = "A brainfruck interpreter"
 version = "0.1.0"
 edition = "2024"
+readme = "README.md"
+authors = ["Said Atrahouch"]
 
 [dependencies]
 clap = "4.5.49"
